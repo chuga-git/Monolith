@@ -13,6 +13,9 @@ public sealed partial class FireControlServerComponent : Component
     public HashSet<EntityUid> Controlled = [];
 
     [ViewVariables]
+    public Dictionary<string, List<EntityUid>> FireGroups = [];
+
+    [ViewVariables]
     public HashSet<EntityUid> Consoles = [];
 
     [ViewVariables]

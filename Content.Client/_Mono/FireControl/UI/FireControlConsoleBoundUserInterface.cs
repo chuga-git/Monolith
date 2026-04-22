@@ -1,6 +1,7 @@
 // Copyright Rane (elijahrane@gmail.com) 2025
 // All rights reserved. Relicensed under AGPL with permission
 
+using System.Linq;
 using Content.Shared._Mono.FireControl;
 using JetBrains.Annotations;
 using Robust.Client.UserInterface;
@@ -9,14 +10,11 @@ using Robust.Shared.Map;
 namespace Content.Client._Mono.FireControl.UI;
 
 [UsedImplicitly]
-public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
+public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum uiKey) : BoundUserInterface(owner, uiKey)
 {
     [ViewVariables]
     private FireControlWindow? _window;
 
-    public FireControlConsoleBoundUserInterface(EntityUid owner, Enum uiKey) : base(owner, uiKey)
-    {
-    }
 
     protected override void Open()
     {
@@ -53,19 +51,19 @@ public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
         SendMessage(new FireControlConsoleRefreshServerMessage());
     }
 
+    // TODO: this is rancid
+    private List<NetEntity> GetSelectedWeapons(FireControlWindow window)
+    {
+        return window.GetSelectedWeapons() ?? [];
+    }
+
     private void UpdateSelectedWeapons()
     {
         if (_window?.Radar is not FireControlNavControl navControl)
             return;
 
-        var selectedWeapons = new HashSet<NetEntity>();
-        foreach (var (netEntity, button) in _window.WeaponsList)
-        {
-            if (button.Pressed)
-                selectedWeapons.Add(netEntity);
-        }
-
-        navControl.UpdateSelectedWeapons(selectedWeapons);
+        // TODO: Unsuck this once UI is finalized
+        navControl.UpdateSelectedWeapons(GetSelectedWeapons(_window).ToHashSet());
     }
 
     private void SendFireMessage(NetCoordinates coordinates)
@@ -73,12 +71,7 @@ public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
         if (_window == null)
             return;
 
-        var selected = new List<NetEntity>();
-        foreach (var button in _window.WeaponsList)
-        {
-            if (button.Value.Pressed)
-                selected.Add(button.Key);
-        }
+        var selected = GetSelectedWeapons(_window);
 
         if (selected.Count > 0)
             SendMessage(new FireControlConsoleFireMessage(selected, coordinates));
@@ -96,12 +89,11 @@ public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
 
         if (state is not FireControlConsoleBoundInterfaceState castState)
             return;
-
         _window?.UpdateStatus(castState);
         if (_window?.Radar is FireControlNavControl navControl)
         {
             navControl.SetConsole(Owner);
-            navControl.UpdateControllables(Owner, castState.FireControllables);
+            navControl.UpdateControllables(Owner, castState.FireControllables, castState.FireGroups);
 
             // Update selected weapons when state updates
             UpdateSelectedWeapons();

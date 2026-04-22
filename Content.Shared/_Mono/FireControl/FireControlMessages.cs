@@ -14,12 +14,14 @@ public sealed class FireControlConsoleBoundInterfaceState : BoundUserInterfaceSt
 {
     public bool Connected;
     public FireControllableEntry[] FireControllables;
+    public Dictionary<string, List<FireControllableEntry>> FireGroups;
     public NavInterfaceState NavState;
 
-    public FireControlConsoleBoundInterfaceState(bool connected, FireControllableEntry[] fireControllables, NavInterfaceState navState)
+    public FireControlConsoleBoundInterfaceState(bool connected, FireControllableEntry[] fireControllables, Dictionary<string, List<FireControllableEntry>> fireGroups, NavInterfaceState navState)
     {
         Connected = connected;
         FireControllables = fireControllables;
+        FireGroups = fireGroups;
         NavState = navState;
     }
 }
@@ -72,7 +74,7 @@ public sealed class FireControlConsoleFireEvent : EntityEventArgs
 }
 
 [Serializable, NetSerializable]
-public struct FireControllableEntry
+public record struct FireControllableEntry
 {
     /// <summary>
     /// The entity in question
@@ -93,6 +95,11 @@ public struct FireControllableEntry
     /// Current ammunition count.
     /// </summary>
     public int? AmmoCount;
+
+    /// <summary>
+    /// Ammunition capacity;
+    /// </summary>
+    public int? Capacity;
 
     /// <summary>
     /// Whether this weapon has manual reload.

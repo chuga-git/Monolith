@@ -30,6 +30,7 @@ public sealed class FireControlNavControl : ShuttleNavControl
 
     private EntityUid? _activeConsole;
     private FireControllableEntry[]? _controllables;
+    private Dictionary<string, List<FireControllableEntry>>? _fireGroups;
     private HashSet<NetEntity> _selectedWeapons = new();
 
     private readonly Dictionary<NetEntity, Color> _blipColors = new();
@@ -91,7 +92,6 @@ public sealed class FireControlNavControl : ShuttleNavControl
             {
                 var coords = EntManager.GetCoordinates(controllable.Coordinates);
                 var worldPos = _transform.ToMapCoordinates(coords).Position;
-
                 if (_selectedWeapons.Contains(controllable.NetEntity))
                 {
                     var cursorViewPos = InverseScalePosition(_lastMousePos);
@@ -111,10 +111,11 @@ public sealed class FireControlNavControl : ShuttleNavControl
         }
     }
 
-    public void UpdateControllables(EntityUid console, FireControllableEntry[] controllables)
+    public void UpdateControllables(EntityUid console, FireControllableEntry[] controllables, Dictionary<string, List<FireControllableEntry>> fireGroups)
     {
         _activeConsole = console;
         _controllables = controllables;
+        _fireGroups = fireGroups;
     }
 
     public void UpdateSelectedWeapons(HashSet<NetEntity> selectedWeapons)

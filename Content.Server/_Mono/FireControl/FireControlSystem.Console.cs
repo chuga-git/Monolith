@@ -21,6 +21,8 @@ using Robust.Shared.Map.Components;
 using Robust.Shared.Timing;
 using System.Linq;
 using System.Numerics;
+using Content.Shared._Mono.ShipGuns;
+using Content.Shared.Weapons.Ranged.Events;
 
 namespace Content.Server._Mono.FireControl;
 
@@ -34,6 +36,7 @@ public sealed partial class FireControlSystem : EntitySystem
     [Dependency] private readonly SharedContainerSystem _containers = default!;
     [Dependency] private readonly IAdminLogManager _adminLogger = default!;
     [Dependency] private readonly IMapManager _mapMan = default!;
+    [Dependency] private readonly IEntityManager _entMan = default!;
 
     private bool _completedCheck = false;
 
@@ -259,48 +262,66 @@ public sealed partial class FireControlSystem : EntitySystem
         NavInterfaceState navState = _shuttleConsoleSystem.GetNavState(uid, _shuttleConsoleSystem.GetAllDocks());
 
         List<FireControllableEntry> controllables = new();
+        Dictionary<string, List<FireControllableEntry>> groups = [];
+        // TODO: Make this less wasteful.
         if (component.ConnectedServer != null && TryComp<FireControlServerComponent>(component.ConnectedServer, out var server))
         {
             if (!server.Consoles.Contains(uid))
                 return;
+            // var sorted = server.Controlled.OrderBy(ent =>
+            // {
+            //     TryComp<ShipGunClassComponent>(ent, out var classComp);
+            //     return classComp?.Class ?? ShipGunClass.Superlight;
+            // });
 
             foreach (var controllable in server.Controlled)
             {
-                var controlled = new FireControllableEntry();
-                controlled.NetEntity = EntityManager.GetNetEntity(controllable);
-                controlled.Coordinates = GetNetCoordinates(Transform(controllable).Coordinates);
-                controlled.Name = MetaData(controllable).EntityName;
+                var controlled = new FireControllableEntry
+                {
+                    NetEntity = EntityManager.GetNetEntity(controllable),
+                    Coordinates = GetNetCoordinates(Transform(controllable).Coordinates),
+                    Name = MetaData(controllable).EntityName,
+                };
 
-                var (ammoCount, hasManualReload) = GetWeaponAmmunitionInfo(controllable);
+                var (ammoCount, ammoCapacity, manualReload) = GetWeaponAmmunitionInfo(controllable);
                 controlled.AmmoCount = ammoCount;
-                controlled.HasManualReload = hasManualReload;
+                controlled.Capacity = ammoCapacity;
+                controlled.HasManualReload = manualReload;
 
                 controllables.Add(controlled);
+                if (!groups.TryGetValue(controlled.Name, out var list))
+                {
+                    list = [];
+                    groups[controlled.Name] = list;
+                }
+                groups[controlled.Name].Add(controlled);
             }
         }
 
-        var array = controllables.ToArray();
+        var controllableArray = controllables.ToArray();
 
-        var state = new FireControlConsoleBoundInterfaceState(component.ConnectedServer != null, array, navState);
+        var state = new FireControlConsoleBoundInterfaceState(component.ConnectedServer != null, controllableArray, groups, navState);
         _ui.SetUiState(uid, FireControlConsoleUiKey.Key, state);
     }
 
     /// <summary>
     /// Gets ammo information for a weapon to determine if it has manual reload.
     /// </summary>
-    private (int? ammoCount, bool hasManualReload) GetWeaponAmmunitionInfo(EntityUid weaponEntity)
+    private (int? ammoCount, int? capacity, bool manualReload) GetWeaponAmmunitionInfo(EntityUid weaponEntity)
     {
+        GetAmmoCountEvent ev = new();
+        RaiseLocalEvent(weaponEntity, ref ev);
+        var manualReload = false;
+
         if (TryComp<BasicEntityAmmoProviderComponent>(weaponEntity, out var basicAmmo))
         {
-            var hasRecharge = HasComp<RechargeBasicEntityAmmoComponent>(weaponEntity);
-
-            return (basicAmmo.Count, !hasRecharge);
+            manualReload = !HasComp<RechargeBasicEntityAmmoComponent>(weaponEntity);
         }
 
         if (TryComp<BallisticAmmoProviderComponent>(weaponEntity, out var ballisticAmmo))
         {
             // if we're InfiniteUnspawned consider us to be non-reloading when at 0 ammo
-            return (ballisticAmmo.Count, ballisticAmmo.Cycleable && (ballisticAmmo.Count != 0 || !ballisticAmmo.InfiniteUnspawned));
+            manualReload = ballisticAmmo.Cycleable && (ballisticAmmo.Count != 0 || !ballisticAmmo.InfiniteUnspawned);
         }
 
         if (TryComp<MagazineAmmoProviderComponent>(weaponEntity, out var magazineAmmo))
@@ -310,20 +331,17 @@ public sealed partial class FireControlSystem : EntitySystem
             {
                 if (TryComp<BallisticAmmoProviderComponent>(magazineEntity, out var magazineBallisticAmmo))
                 {
-                    var hasAmmo = magazineBallisticAmmo.Cycleable
-                             && (magazineBallisticAmmo.Count != 0 || !magazineBallisticAmmo.InfiniteUnspawned);
-                    return (magazineBallisticAmmo.Count, hasAmmo);
+                    manualReload = magazineBallisticAmmo.Cycleable
+                                  && (magazineBallisticAmmo.Count != 0 || !magazineBallisticAmmo.InfiniteUnspawned);
                 }
 
                 if (TryComp<BasicEntityAmmoProviderComponent>(magazineEntity, out var magazineBasicAmmo))
                 {
-                    var hasRecharge = HasComp<RechargeBasicEntityAmmoComponent>(magazineEntity);
-                    return (magazineBasicAmmo.Count, !hasRecharge);
+                    manualReload = !HasComp<RechargeBasicEntityAmmoComponent>(magazineEntity);
                 }
             }
         }
-
-        return (null, false);
+        return (ev.Count, ev.Capacity, manualReload);
     }
 
     /// <summary>

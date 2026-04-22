@@ -257,7 +257,9 @@ public sealed partial class FireControlSystem : EntitySystem
 
         if (component.ControllingServer == null || !TryComp<FireControlServerComponent>(component.ControllingServer, out var controlComp))
             return;
-
+        var fireGroup = MetaData(controllable).EntityName;
+        if (controlComp.FireGroups.TryGetValue(fireGroup, out var value))
+            value.Remove(controllable);
         controlComp.Controlled.Remove(controllable);
         controlComp.UsedProcessingPower -= GetProcessingPowerCost(controllable, component);
         component.ControllingServer = null;
@@ -278,16 +280,19 @@ public sealed partial class FireControlSystem : EntitySystem
         if (processingPowerCost > GetRemainingProcessingPower(gridServer.ServerUid.Value, gridServer.ServerComponent))
             return false;
 
+        var fireGroup = MetaData(controllable).EntityName;
         if (gridServer.ServerComponent.Controlled.Add(controllable))
         {
+            if (!gridServer.ServerComponent.FireGroups.ContainsKey(fireGroup))
+            {
+                gridServer.ServerComponent.FireGroups[fireGroup] = [];
+            }
+            gridServer.ServerComponent.FireGroups[fireGroup].Add(controllable);
             gridServer.ServerComponent.UsedProcessingPower += processingPowerCost;
             component.ControllingServer = gridServer.ServerUid;
             return true;
         }
-        else
-        {
-            return false;
-        }
+        return false;
     }
 
     public int GetRemainingProcessingPower(EntityUid server, FireControlServerComponent? component = null)
