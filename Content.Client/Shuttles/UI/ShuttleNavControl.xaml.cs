@@ -629,11 +629,18 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
             var ourGridToShuttle = Matrix3x2.Multiply(ourGridToWorld, worldToShuttle);
             var ourGridToView = ourGridToShuttle * shuttleToView;
             var color = _shuttles.GetIFFColor(ourGridId.Value, self: true);
-
+            if (bodyQuery.TryGetComponent(ourGridId.Value, out var gridBody)) // TODO: put this on map screen?
+            {
+                var shuttleVelocity = gridBody.LinearVelocity;
+                shuttleVelocity.Y *= -1;
+                shuttleVelocity = coordEntRot.RotateVec(shuttleVelocity);
+                shuttleVelocity = ScalePosition(shuttleVelocity);
+                var shuttleCenter = Vector2.Transform(gridBody.LocalCenter, ourGridToView);
+                handle.DrawLine(shuttleCenter, shuttleVelocity, Color.White.WithAlpha(0.75f));
+            }
             DrawGrid(handle, ourGridToView, (ourGridId.Value, ourGrid), color);
             DrawDocks(handle, ourGridId.Value, ourGridToView);
         }
-
         // Draw radar position on the station
         // Mono - use precalculated verts and scale each point rather than allocating a fresh array
         var radarPosVerts = new Vector2[RadarPosVertsCache.Length];
@@ -654,6 +661,8 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
         _tempBlipDataList.Clear();
 
         _visibleGridsSet.Clear();
+
+        const float labelFontScale = 0.7f;
 
         // Draw other grids... differently
         foreach (var grid in _grids)
@@ -767,7 +776,7 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                     #region Mono
 
                     // Why are the magic numbers 0.9 and 0.7 used? I have no fucking clue.
-                    var labelDimensions = handle.GetDimensions(Font, labelText, 0.9f);
+                    var labelDimensions = handle.GetDimensions(Font, labelText, labelFontScale);
                     var blipSize = RadarBlipSize * 0.7f;
 
                     // The center of the radar in UI space.
@@ -824,7 +833,7 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                     var mainLabel = lines[0];
 
                     // Draw main ship label with company color if available
-                    handle.DrawString(Font, (uiPosition + labelOffset) * UIScale, mainLabel, UIScale * 0.9f, displayColor);
+                    handle.DrawString(Font, (uiPosition + labelOffset) * UIScale, mainLabel, UIScale * labelFontScale, displayColor);
 
                     // Draw company label if present
                     if (!hideLabel && lines.Length > 1)
@@ -832,10 +841,10 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                         var companyLabel = lines[1];
                         var companyLabelOffset = new Vector2(
                             labelOffset.X,
-                            labelOffset.Y + handle.GetDimensions(Font, mainLabel, 0.9f).Y
+                            labelOffset.Y + handle.GetDimensions(Font, mainLabel, labelFontScale).Y
                         );
 
-                        handle.DrawString(Font, (uiPosition + companyLabelOffset) * UIScale, companyLabel, UIScale * 0.9f, displayColor);
+                        handle.DrawString(Font, (uiPosition + companyLabelOffset) * UIScale, companyLabel, UIScale * labelFontScale, displayColor);
                     }
 
                     if (isMouseOver && !HideCoords)
