@@ -164,11 +164,11 @@ public sealed partial class FireControlSystem : EntitySystem
             component.NextLog = _timing.CurTime + component.LogSpacing;
         }
 
-        UpdateUi(uid, component);
+        // UpdateUi(uid, component);
 
         // Raise an event to track the cursor position even when not firing
-        var fireEvent = new FireControlConsoleFireEvent(args.Coordinates, args.Selected);
-        RaiseLocalEvent(uid, fireEvent);
+        // var fireEvent = new FireControlConsoleFireEvent(args.Coordinates, args.Selected);
+        // RaiseLocalEvent(uid, fireEvent);
     }
 
     public void OnUIOpened(EntityUid uid, FireControlConsoleComponent component, BoundUIOpenedEvent args)
@@ -192,6 +192,7 @@ public sealed partial class FireControlSystem : EntitySystem
             _popup.PopupClient(Loc.GetString("shuttle-console-crewed"), args.User);
         }
     }
+
 
     private void UnregisterConsole(EntityUid console, FireControlConsoleComponent? component = null)
     {
@@ -283,10 +284,17 @@ public sealed partial class FireControlSystem : EntitySystem
                     Name = MetaData(controllable).EntityName,
                 };
 
-                var (ammoCount, ammoCapacity, manualReload) = GetWeaponAmmunitionInfo(controllable);
-                controlled.AmmoCount = ammoCount;
+                var (ammoCount, ammoCapacity) = GetWeaponAmmo(controllable);
+                var manualReload = IsManualReload(controllable);
+                var canFire = false;
+                if (TryComp<GunComponent>(controllable, out var gunComp))
+                {
+                    canFire = _timing.CurTime > gunComp.NextFire;
+                }
+                controlled.Shots = ammoCount;
                 controlled.Capacity = ammoCapacity;
                 controlled.HasManualReload = manualReload;
+                controlled.CanFire = canFire;
 
                 controllables.Add(controlled);
                 if (!groups.TryGetValue(controlled.Name, out var list))
@@ -304,24 +312,37 @@ public sealed partial class FireControlSystem : EntitySystem
         _ui.SetUiState(uid, FireControlConsoleUiKey.Key, state);
     }
 
+    private void UpdateAmmoCounts(Entity<FireControlConsoleComponent> console, EntityUid weapon)
+    {
+        var message = new FireControlConsoleAmmoUpdateMessage();
+        var (count, capacity) = GetWeaponAmmo(weapon);
+        message.NetEntity = EntityManager.GetNetEntity(weapon);
+        message.Shots = count;
+        message.Capacity = capacity;
+        _ui.ServerSendUiMessage(console.Owner, FireControlConsoleUiKey.Key, message);
+    }
+
     /// <summary>
     /// Gets ammo information for a weapon to determine if it has manual reload.
     /// </summary>
-    private (int? ammoCount, int? capacity, bool manualReload) GetWeaponAmmunitionInfo(EntityUid weaponEntity)
+    private (int ammoCount, int capacity) GetWeaponAmmo(EntityUid weaponEntity)
     {
         GetAmmoCountEvent ev = new();
         RaiseLocalEvent(weaponEntity, ref ev);
-        var manualReload = false;
+        return (ev.Count, ev.Capacity);
+    }
 
+    private bool IsManualReload(EntityUid weaponEntity)
+    {
         if (TryComp<BasicEntityAmmoProviderComponent>(weaponEntity, out var basicAmmo))
         {
-            manualReload = !HasComp<RechargeBasicEntityAmmoComponent>(weaponEntity);
+            return !HasComp<RechargeBasicEntityAmmoComponent>(weaponEntity);
         }
 
         if (TryComp<BallisticAmmoProviderComponent>(weaponEntity, out var ballisticAmmo))
         {
             // if we're InfiniteUnspawned consider us to be non-reloading when at 0 ammo
-            manualReload = ballisticAmmo.Cycleable && (ballisticAmmo.Count != 0 || !ballisticAmmo.InfiniteUnspawned);
+            return ballisticAmmo.Cycleable && (ballisticAmmo.Count != 0 || !ballisticAmmo.InfiniteUnspawned);
         }
 
         if (TryComp<MagazineAmmoProviderComponent>(weaponEntity, out var magazineAmmo))
@@ -331,17 +352,18 @@ public sealed partial class FireControlSystem : EntitySystem
             {
                 if (TryComp<BallisticAmmoProviderComponent>(magazineEntity, out var magazineBallisticAmmo))
                 {
-                    manualReload = magazineBallisticAmmo.Cycleable
-                                  && (magazineBallisticAmmo.Count != 0 || !magazineBallisticAmmo.InfiniteUnspawned);
+                    return magazineBallisticAmmo.Cycleable
+                                   && (magazineBallisticAmmo.Count != 0 || !magazineBallisticAmmo.InfiniteUnspawned);
                 }
 
                 if (TryComp<BasicEntityAmmoProviderComponent>(magazineEntity, out var magazineBasicAmmo))
                 {
-                    manualReload = !HasComp<RechargeBasicEntityAmmoComponent>(magazineEntity);
+                    return !HasComp<RechargeBasicEntityAmmoComponent>(magazineEntity);
                 }
             }
         }
-        return (ev.Count, ev.Capacity, manualReload);
+
+        return false;
     }
 
     /// <summary>

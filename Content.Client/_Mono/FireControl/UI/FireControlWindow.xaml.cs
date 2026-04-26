@@ -23,15 +23,10 @@ public sealed partial class FireControlWindow : FancyWindow
     public FireControlNavControl Radar => NavRadar;
     public Action? OnServerRefresh;
     public Action? OnWeaponSelectionChanged;
-    /// <summary>
-    /// Maps fire group names to the FireGroupContainer representing them
-    /// </summary>
-    public Dictionary<string, FireGroupContainer> GroupToContainer = [];
-    /// <summary>
-    /// Maps weapon NetEntities to the FireGroupContainer that contains them
-    /// </summary>
-    public Dictionary<NetEntity, AmmoBar> AmmoBarMap = [];
+    public List<NetEntity> SelectedWeapons = [];
     private FireControlConsoleBoundInterfaceState? _currentState;
+    private Dictionary<string, FireGroupContainer> _groupToContainer = [];
+    private Dictionary<NetEntity, GunBox> _gunToGunBox = [];
 
     public FireControlWindow()
     {
@@ -46,66 +41,47 @@ public sealed partial class FireControlWindow : FancyWindow
     private void SelectAllFireGroups(BaseButton.ButtonEventArgs args)
     {
         // TODO: this approach still sucks
-        foreach (var container in GroupToContainer.Values)
+        foreach (var container in _groupToContainer.Values)
         {
             container.GroupButton.Pressed = true;
         }
-        OnWeaponSelectionChanged?.Invoke();
-        UpdateAllFireGroups();
+        UpdateSelectedWeapons();
     }
 
     private void UnselectAllFireGroups(BaseButton.ButtonEventArgs args)
     {
-        foreach (var container in GroupToContainer.Values)
+        foreach (var container in _groupToContainer.Values)
         {
             container.GroupButton.Pressed = false;
         }
-        OnWeaponSelectionChanged?.Invoke();
-        UpdateAllFireGroups();
+        UpdateSelectedWeapons();
     }
 
-    public List<NetEntity>? GetSelectedWeapons()
+    private void FireGroupButtonOnToggled(BaseButton.ButtonEventArgs args)
     {
         if (_currentState == null)
+            return;
+        var button = (Button)args.Button;
+        var group = button.Text ?? ""; // TODO: no.
+        foreach (var controllable in _currentState.FireGroups[group])
         {
-            return null;
+            _gunToGunBox[controllable.NetEntity].GunButton.Pressed = button.Pressed;
         }
-
-        List<NetEntity> weapons = [];
-        foreach (var (group, container) in GroupToContainer)
-        {
-            if (container.GroupButton.Pressed)
-            {
-                weapons.AddRange(_currentState.FireGroups[group].Select(w => w.NetEntity));
-            }
-        }
-
-        return weapons;
+        UpdateSelectedWeapons();
     }
 
-    // private void SelectBallisticWeapons(BaseButton.ButtonEventArgs args)
-    // {
-    //     // First unselect all weapons
-    //     foreach (var container in WeaponsList.Values)
-    //     {
-    //         container.WeaponButton.Pressed = false;
-    //     }
-    //
-    //     // Then select only ballistic weapons
-    //     foreach (var kvp in WeaponsList)
-    //     {
-    //         var weaponEntity = kvp.Key;
-    //         var button = kvp.Value.WeaponButton;
-    //
-    //         if (_weaponTypes.TryGetValue(weaponEntity, out var type) && type == ShipGunType.Ballistic)
-    //         {
-    //             button.Pressed = true;
-    //         }
-    //     }
-    //
-    //     OnWeaponSelectionChanged?.Invoke();
-    //     UpdateAllWeaponButtonTexts();
-    // }
+    private void UpdateSelectedWeapons()
+    {
+        SelectedWeapons = [];
+        foreach (var (controllable, gunBox) in _gunToGunBox)
+        {
+            if (gunBox.GunButton.Pressed)
+            {
+                SelectedWeapons.Add(controllable);
+            }
+        }
+        OnWeaponSelectionChanged?.Invoke();
+    }
 
 
     /// <summary>
@@ -145,20 +121,26 @@ public sealed partial class FireControlWindow : FancyWindow
     //         button.ModulateSelfOverride = null;
     //     }
     // }
-    private void UpdateFireGroup(string group, FireGroupContainer container)
-    {
-        if (_currentState == null)
-            return;
-        container.AmmoBarContainer.DisposeAllChildren();
-        foreach (var controllable in _currentState.FireGroups[group])
-        {
-            // TODO: this is obviously not going to update properly. get these values from the BUI somehow (timer?).
-            container.AmmoBarContainer.AddChild(new AmmoBar()
-                { Value = controllable.AmmoCount ?? 0, MaxValue = controllable.Capacity ?? 0 });
-        }
-    }
+    // private void UpdateFireGroup(string group, FireGroupContainer container)
+    // {
+    //     if (_currentState == null)
+    //         return;
+    //     container.AmmoBarContainer.DisposeAllChildren();
+    //     foreach (var controllable in _currentState.FireGroups[group])
+    //     {
+    //         // TODO: this is obviously not going to update properly. get these values from the BUI somehow (timer?).
+    //         var bar = new AmmoBar()
+    //             { MaxValue = controllable.Capacity ?? 0, Value = controllable.Shots ?? 0  };
+    //         if (!controllable.CanFire)
+    //         {
+    //             bar._bar.ModulateSelfOverride = Color.Red;
+    //         }
+    //         container.AmmoBarContainer.AddChild(bar);
+    //     }
+    // }
+
     /// <summary>
-    /// Updates all weapon button texts based on current selection state.
+    ///
     /// </summary>
     private void UpdateAllFireGroups()
     {
@@ -166,7 +148,7 @@ public sealed partial class FireControlWindow : FancyWindow
         if (_currentState == null)
             return;
         List<string>? toRemove = null;
-        foreach (var (group, container) in GroupToContainer)
+        foreach (var (group, container) in _groupToContainer)
         {
             // TODO: what?
             // var controllable = _currentState?.FireControllables?.FirstOrDefault(c => c.NetEntity == netEntity);
@@ -178,7 +160,7 @@ public sealed partial class FireControlWindow : FancyWindow
             }
             else
             {
-            UpdateFireGroup(group, container);
+                // UpdateFireGroup(group, container);
             }
         }
 
@@ -186,9 +168,17 @@ public sealed partial class FireControlWindow : FancyWindow
         {
             foreach (var group in toRemove)
             {
-                GroupToContainer.Remove(group);
+                _groupToContainer.Remove(group);
             }
         }
+    }
+
+    public void UpdateAmmoStatus(NetEntity controllable, int shots, int capacity)
+    {
+        var bar = _gunToGunBox[controllable].AmmoBar;
+        bar.MaxValue = capacity;
+        bar.Value = shots;
+        bar._label.Text = shots.ToString();
     }
 
     public void UpdateStatus(FireControlConsoleBoundInterfaceState state)
@@ -208,26 +198,29 @@ public sealed partial class FireControlWindow : FancyWindow
             ServerStatus.FontColorOverride = Color.Red;
         }
 
-        UpdateWeaponsList(state);
-        UpdateAllFireGroups();
+        RefreshWeaponsList(state);
+        // UpdateAllFireGroups();
     }
 
-    private void UpdateWeaponsList(FireControlConsoleBoundInterfaceState state)
+    private void RefreshWeaponsList(FireControlConsoleBoundInterfaceState state)
     {
-        foreach (var staleGroup in GroupToContainer.Keys.Except(state.FireGroups.Keys))
-        {
-            FireGroupsBox.RemoveChild(GroupToContainer[staleGroup]);
-            GroupToContainer.Remove(staleGroup);
-        }
+        // Remove fire groups that no longer exist
+        // foreach (var staleGroup in GroupToContainer.Keys.Except(state.FireGroups.Keys))
+        // {
+        //     FireGroupsBox.RemoveChild(GroupToContainer[staleGroup]);
+        //     GroupToContainer.Remove(staleGroup);
+        // }
+        FireGroupsBox.DisposeAllChildren();
+        _groupToContainer = [];
+        _gunToGunBox = [];
         foreach (var (group, controllables) in state.FireGroups)
         {
             // We already have a container for the fire group, update it
-            if (GroupToContainer.ContainsKey(group))
-            {
-                UpdateFireGroup(group, GroupToContainer[group]);
-                continue;
-            }
-            // This fire group is new, create a container for it
+            // if (GroupToContainer.ContainsKey(group))
+            // {
+            //     UpdateFireGroup(group, GroupToContainer[group]);
+            //     continue;
+            // }
 
             // Group selector button
             var button = new Button
@@ -238,14 +231,10 @@ public sealed partial class FireControlWindow : FancyWindow
                 HorizontalExpand = true,
                 Margin = new Thickness(4, 1),
             };
-            button.OnToggled += _ =>
-            {
-                OnWeaponSelectionChanged?.Invoke();
-                UpdateAllFireGroups();
-            };
+            button.OnToggled += FireGroupButtonOnToggled;
 
             // Ammo bars
-            var ammoBarContainer = new BoxContainer()
+            var gunContainer = new BoxContainer()
             {
                 Orientation = BoxContainer.LayoutOrientation.Vertical,
                 HorizontalExpand = true,
@@ -259,20 +248,24 @@ public sealed partial class FireControlWindow : FancyWindow
                 HorizontalExpand = true,
                 StyleClasses = { "transparentItemList" },
                 GroupButton = button,
-                AmmoBarContainer = ammoBarContainer,
-                GroupName = group,
+                GunBoxContainer = gunContainer,
             };
             groupContainer.AddChild(button);
-            groupContainer.AddChild(ammoBarContainer);
+            groupContainer.AddChild(gunContainer);
 
             foreach (var controllable in controllables)
             {
-                ammoBarContainer.AddChild(new AmmoBar()
-                    { Value = controllable.AmmoCount ?? 0, MaxValue = controllable.Capacity ?? 0 }); // TODO: unfuck ammo stats
+                var gunBox = new GunBox();
+                gunBox.AmmoBar.MaxValue = controllable.Capacity ?? 0; // TODO: how to encode if a gun needs an ammo bar?
+                gunBox.AmmoBar.Value = controllable.Shots ?? 0;
+                gunBox.CooldownBar.MaxValue = 0; // TODO: remove the label from CD bar
+                gunBox.CooldownBar.Value = 0;
+                gunContainer.AddChild(gunBox);
+                _gunToGunBox[controllable.NetEntity] = gunBox;
             }
-            GroupToContainer[group] = groupContainer;
+            _groupToContainer[group] = groupContainer;
             FireGroupsBox.AddChild(groupContainer);
-            UpdateFireGroup(group, groupContainer);
+            // UpdateFireGroup(group, groupContainer);
         }
 
         SelectAllButton.Disabled = state.FireControllables.Length == 0;
@@ -282,10 +275,43 @@ public sealed partial class FireControlWindow : FancyWindow
 
 public sealed class FireGroupContainer : BoxContainer
 {
-    public required string GroupName { get; set; }
     public required Button GroupButton { get; set; }
 
-    public required BoxContainer AmmoBarContainer { get; set; }
+    public required BoxContainer GunBoxContainer { get; set; }
+}
+
+public sealed class GunBox : BoxContainer
+{
+    public Button GunButton;
+    public AmmoBar AmmoBar;
+    public AmmoBar CooldownBar;
+
+    public GunBox()
+    {
+        Orientation = LayoutOrientation.Vertical;
+        HorizontalExpand = true;
+        AddChild(GunButton = new Button()
+        {
+            ToggleMode = true,
+            StyleClasses = { "ButtonSquare" },
+            HorizontalExpand = true,
+            // Margin = new Thickness(4, 1),
+            Children =
+            {
+                new BoxContainer()
+                {
+                    HorizontalExpand = true,
+                    Orientation = LayoutOrientation.Horizontal,
+                    // Margin = new Thickness(2, 1);
+                    Children =
+                    {
+                        (AmmoBar = new AmmoBar()),
+                        (CooldownBar = new AmmoBar()),
+                    },
+                },
+            },
+        });
+    }
 }
 public sealed class AmmoBar : Control
 {
@@ -314,8 +340,8 @@ public sealed class AmmoBar : Control
         }
     }
 
-    private Label _label;
-    private ProgressBar _bar;
+    public Label _label;
+    public ProgressBar _bar;
 
     public AmmoBar()
     {

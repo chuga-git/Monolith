@@ -51,11 +51,6 @@ public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum u
         SendMessage(new FireControlConsoleRefreshServerMessage());
     }
 
-    // TODO: this is rancid
-    private List<NetEntity> GetSelectedWeapons(FireControlWindow window)
-    {
-        return window.GetSelectedWeapons() ?? [];
-    }
 
     private void UpdateSelectedWeapons()
     {
@@ -63,7 +58,7 @@ public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum u
             return;
 
         // TODO: Unsuck this once UI is finalized
-        navControl.UpdateSelectedWeapons(GetSelectedWeapons(_window).ToHashSet());
+        navControl.UpdateSelectedWeapons(_window.SelectedWeapons.ToHashSet());
     }
 
     private void SendFireMessage(NetCoordinates coordinates)
@@ -71,16 +66,24 @@ public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum u
         if (_window == null)
             return;
 
-        var selected = GetSelectedWeapons(_window);
-
-        if (selected.Count > 0)
-            SendMessage(new FireControlConsoleFireMessage(selected, coordinates));
+        if (_window.SelectedWeapons.Count > 0)
+            SendMessage(new FireControlConsoleFireMessage(_window.SelectedWeapons.ToList(), coordinates));
     }
 
     private void SendCursorUpdateMessage(NetCoordinates coordinates)
     {
         // Send an empty weapon list to indicate this is just a cursor update, not a firing action
         SendMessage(new FireControlConsoleFireMessage(new List<NetEntity>(), coordinates));
+    }
+
+    protected override void ReceiveMessage(BoundUserInterfaceMessage message)
+    {
+        if (_window == null)
+            return;
+        // base.ReceiveMessage(message);
+        if (message is not FireControlConsoleAmmoUpdateMessage ammoMessage)
+            return;
+        _window.UpdateAmmoStatus(ammoMessage.NetEntity, ammoMessage.Shots, ammoMessage.Capacity);
     }
 
     protected override void UpdateState(BoundUserInterfaceState state)
@@ -90,10 +93,10 @@ public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum u
         if (state is not FireControlConsoleBoundInterfaceState castState)
             return;
         _window?.UpdateStatus(castState);
-        if (_window?.Radar is FireControlNavControl navControl)
+        if (_window?.Radar is { } navControl)
         {
             navControl.SetConsole(Owner);
-            navControl.UpdateControllables(Owner, castState.FireControllables, castState.FireGroups);
+            navControl.UpdateControllables(Owner, castState.FireControllables);
 
             // Update selected weapons when state updates
             UpdateSelectedWeapons();

@@ -20,6 +20,7 @@ using Content.Shared.Interaction;
 using Content.Shared._Mono.ShipGuns;
 using Content.Shared.Examine;
 using Content.Server.Salvage.Expeditions;
+using Content.Shared.Weapons.Ranged.Events;
 
 namespace Content.Server._Mono.FireControl;
 
@@ -51,6 +52,8 @@ public sealed partial class FireControlSystem : EntitySystem
         SubscribeLocalEvent<FireControllableComponent, PowerChangedEvent>(OnControllablePowerChanged);
         SubscribeLocalEvent<FireControllableComponent, ComponentShutdown>(OnControllableShutdown);
         SubscribeLocalEvent<FireControllableComponent, EntParentChangedMessage>(OnControllableParentChanged);
+        SubscribeLocalEvent<FireControllableComponent, AmmoCountUpdatedEvent>(OnControllableAmmoCountUpdated);
+
 
         // Subscribe to grid split events to ensure we update when grids change
         SubscribeLocalEvent<GridSplitEvent>(OnGridSplit);
@@ -142,6 +145,19 @@ public sealed partial class FireControlSystem : EntitySystem
                 {
                     UpdateUi(console, consoleComp);
                 }
+            }
+        }
+    }
+
+    private void OnControllableAmmoCountUpdated(Entity<FireControllableComponent> ent, ref AmmoCountUpdatedEvent args)
+    {
+        if (ent.Comp.ControllingServer == null || !TryComp<FireControlServerComponent>(ent.Comp.ControllingServer, out var server))
+            return;
+        foreach (var console in server.Consoles)
+        {
+            if (TryComp<FireControlConsoleComponent>(console, out var consoleComp))
+            {
+                UpdateAmmoCounts((console, consoleComp), ent);
             }
         }
     }
@@ -259,7 +275,13 @@ public sealed partial class FireControlSystem : EntitySystem
             return;
         var fireGroup = MetaData(controllable).EntityName;
         if (controlComp.FireGroups.TryGetValue(fireGroup, out var value))
+        {
             value.Remove(controllable);
+            if (value.Count == 0)
+            {
+                controlComp.FireGroups.Remove(fireGroup);
+            }
+        }
         controlComp.Controlled.Remove(controllable);
         controlComp.UsedProcessingPower -= GetProcessingPowerCost(controllable, component);
         component.ControllingServer = null;
@@ -280,14 +302,16 @@ public sealed partial class FireControlSystem : EntitySystem
         if (processingPowerCost > GetRemainingProcessingPower(gridServer.ServerUid.Value, gridServer.ServerComponent))
             return false;
 
-        var fireGroup = MetaData(controllable).EntityName;
         if (gridServer.ServerComponent.Controlled.Add(controllable))
         {
-            if (!gridServer.ServerComponent.FireGroups.ContainsKey(fireGroup))
+            var fireGroup = MetaData(controllable).EntityName;
+            if (!gridServer.ServerComponent.FireGroups.TryGetValue(fireGroup, out var value))
             {
-                gridServer.ServerComponent.FireGroups[fireGroup] = [];
+                value = [];
+                gridServer.ServerComponent.FireGroups[fireGroup] = value;
             }
-            gridServer.ServerComponent.FireGroups[fireGroup].Add(controllable);
+
+            value.Add(controllable);
             gridServer.ServerComponent.UsedProcessingPower += processingPowerCost;
             component.ControllingServer = gridServer.ServerUid;
             return true;

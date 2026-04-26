@@ -1,6 +1,7 @@
 using Robust.Shared.Serialization;
 using Robust.Shared.Map;
 using Content.Shared.Shuttles.BUIStates;
+using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
 
 namespace Content.Shared._Mono.FireControl;
 
@@ -51,6 +52,17 @@ public sealed class FireControlConsoleFireMessage : BoundUserInterfaceMessage
 }
 
 /// <summary>
+///
+/// </summary>
+[Serializable, NetSerializable]
+public sealed class FireControlConsoleAmmoUpdateMessage : BoundUserInterfaceMessage
+{
+    public NetEntity NetEntity;
+    public int Shots;
+    public int Capacity;
+}
+
+/// <summary>
 /// Event raised when a fire control console wants to fire weapons at specific coordinates.
 /// Used for tracking cursor position.
 /// </summary>
@@ -74,44 +86,48 @@ public sealed class FireControlConsoleFireEvent : EntityEventArgs
 }
 
 [Serializable, NetSerializable]
-public record struct FireControllableEntry
+public record struct FireControllableEntry(
+    NetEntity NetEntity,
+    NetCoordinates Coordinates,
+    string Name,
+    TimeSpan NextFire,
+    int? Shots = null,
+    int? Capacity = null,
+    bool HasManualReload = false,
+    bool CanFire = false )
 {
     /// <summary>
     /// The entity in question
     /// </summary>
-    public NetEntity NetEntity;
+    public NetEntity NetEntity = NetEntity;
 
     /// <summary>
     /// Location of the entity
     /// </summary>
-    public NetCoordinates Coordinates;
+    public NetCoordinates Coordinates = Coordinates;
 
     /// <summary>
     /// Display name of the entity
     /// </summary>
-    public string Name;
+    public string Name = Name;
 
     /// <summary>
     /// Current ammunition count.
     /// </summary>
-    public int? AmmoCount;
+    public int? Shots = Shots;
 
     /// <summary>
-    /// Ammunition capacity;
+    /// Ammunition capacity.
     /// </summary>
-    public int? Capacity;
+    public int? Capacity = Capacity;
 
     /// <summary>
     /// Whether this weapon has manual reload.
     /// </summary>
-    public bool HasManualReload;
-
-    public FireControllableEntry(NetEntity entity, NetCoordinates coordinates, string name, int? ammoCount = null, bool hasManualReload = false)
-    {
-        NetEntity = entity;
-        Coordinates = coordinates;
-        Name = name;
-        AmmoCount = ammoCount;
-        HasManualReload = hasManualReload;
-    }
+    public bool HasManualReload = HasManualReload;
+    /// <summary>
+    /// Whether this weapon is able to fire.
+    /// </summary>
+    [DataField(customTypeSerializer: typeof(TimeOffsetSerializer))]
+    public TimeSpan NextFire = TimeSpan.Zero;
 }
