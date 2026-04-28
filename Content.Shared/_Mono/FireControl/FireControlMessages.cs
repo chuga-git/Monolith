@@ -1,6 +1,7 @@
 using Robust.Shared.Serialization;
 using Robust.Shared.Map;
 using Content.Shared.Shuttles.BUIStates;
+using Content.Shared.Timing;
 using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
 
 namespace Content.Shared._Mono.FireControl;
@@ -55,12 +56,14 @@ public sealed class FireControlConsoleFireMessage : BoundUserInterfaceMessage
 ///
 /// </summary>
 [Serializable, NetSerializable]
-public sealed class FireControlConsoleAmmoUpdateMessage : BoundUserInterfaceMessage
+public sealed class FireControlConsoleWeaponUpdateMessage : BoundUserInterfaceMessage
 {
     public NetEntity NetEntity;
     public int Shots;
     public int Capacity;
+    public StartEndTime? Cooldown;
 }
+
 
 /// <summary>
 /// Event raised when a fire control console wants to fire weapons at specific coordinates.
@@ -125,9 +128,9 @@ public record struct FireControllableEntry(
     /// Whether this weapon has manual reload.
     /// </summary>
     public bool HasManualReload = HasManualReload;
+
     /// <summary>
-    /// Whether this weapon is able to fire.
+    ///
     /// </summary>
-    [DataField(customTypeSerializer: typeof(TimeOffsetSerializer))]
-    public TimeSpan NextFire = TimeSpan.Zero;
+    public StartEndTime FireCooldown;
 }

@@ -22,7 +22,9 @@ using Robust.Shared.Timing;
 using System.Linq;
 using System.Numerics;
 using Content.Shared._Mono.ShipGuns;
+using Content.Shared.Timing;
 using Content.Shared.Weapons.Ranged.Events;
+using Content.Shared.Weapons.Ranged.Systems;
 
 namespace Content.Server._Mono.FireControl;
 
@@ -312,13 +314,14 @@ public sealed partial class FireControlSystem : EntitySystem
         _ui.SetUiState(uid, FireControlConsoleUiKey.Key, state);
     }
 
-    private void UpdateAmmoCounts(Entity<FireControlConsoleComponent> console, EntityUid weapon)
+    private void UpdateWeaponStatus(Entity<FireControlConsoleComponent> console, EntityUid weapon, StartEndTime? cooldown = null)
     {
-        var message = new FireControlConsoleAmmoUpdateMessage();
+        var message = new FireControlConsoleWeaponUpdateMessage();
         var (count, capacity) = GetWeaponAmmo(weapon);
         message.NetEntity = EntityManager.GetNetEntity(weapon);
         message.Shots = count;
         message.Capacity = capacity;
+        message.Cooldown = cooldown;
         _ui.ServerSendUiMessage(console.Owner, FireControlConsoleUiKey.Key, message);
     }
 
@@ -330,6 +333,13 @@ public sealed partial class FireControlSystem : EntitySystem
         GetAmmoCountEvent ev = new();
         RaiseLocalEvent(weaponEntity, ref ev);
         return (ev.Count, ev.Capacity);
+    }
+
+    private StartEndTime GetWeaponCooldown(Entity<GunComponent?> weapon)
+    {
+        if (!Resolve(weapon, ref weapon.Comp))
+            return default;
+        return StartEndTime.FromCurTime(_timing, weapon.Comp.NextFire - _timing.CurTime);
     }
 
     private bool IsManualReload(EntityUid weaponEntity)

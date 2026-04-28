@@ -78,12 +78,12 @@ public sealed class FireControlConsoleBoundUserInterface(EntityUid owner, Enum u
 
     protected override void ReceiveMessage(BoundUserInterfaceMessage message)
     {
+        base.ReceiveMessage(message);
         if (_window == null)
             return;
-        // base.ReceiveMessage(message);
-        if (message is not FireControlConsoleAmmoUpdateMessage ammoMessage)
+        if (message is not FireControlConsoleWeaponUpdateMessage updateMessage)
             return;
-        _window.UpdateAmmoStatus(ammoMessage.NetEntity, ammoMessage.Shots, ammoMessage.Capacity);
+        _window.UpdateWeaponStatus(updateMessage);
     }
 
     protected override void UpdateState(BoundUserInterfaceState state)

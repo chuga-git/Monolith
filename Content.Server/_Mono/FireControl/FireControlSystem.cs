@@ -11,6 +11,7 @@ using Robust.Shared.Physics.Systems;
 using System.Linq;
 using Content.Shared.Physics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Content.Server._Mono.SpaceArtillery;
 using Content.Server._Mono.SpaceArtillery.Components;
 using Content.Server.Power.EntitySystems;
@@ -20,18 +21,20 @@ using Content.Shared.Interaction;
 using Content.Shared._Mono.ShipGuns;
 using Content.Shared.Examine;
 using Content.Server.Salvage.Expeditions;
+using Content.Shared.Timing;
 using Content.Shared.Weapons.Ranged.Events;
+using Content.Shared.Weapons.Ranged.Systems;
 
 namespace Content.Server._Mono.FireControl;
 
 public sealed partial class FireControlSystem : EntitySystem
 {
-    [Dependency] private readonly SharedTransformSystem _xform = default!;
-    [Dependency] private readonly GunSystem _gun = default!;
-    [Dependency] private readonly SharedPhysicsSystem _physics = default!;
-    [Dependency] private readonly IGameTiming _timing = default!;
-    [Dependency] private readonly PowerReceiverSystem _power = default!;
-    [Dependency] private readonly RotateToFaceSystem _rotateToFace = default!;
+    [Robust.Shared.IoC.Dependency] private readonly SharedTransformSystem _xform = default!;
+    [Robust.Shared.IoC.Dependency] private readonly GunSystem _gun = default!;
+    [Robust.Shared.IoC.Dependency] private readonly SharedPhysicsSystem _physics = default!;
+    [Robust.Shared.IoC.Dependency] private readonly IGameTiming _timing = default!;
+    [Robust.Shared.IoC.Dependency] private readonly PowerReceiverSystem _power = default!;
+    [Robust.Shared.IoC.Dependency] private readonly RotateToFaceSystem _rotateToFace = default!;
     /// <summary>
     /// Dictionary of entities that have visualization enabled
     /// </summary>
@@ -53,6 +56,7 @@ public sealed partial class FireControlSystem : EntitySystem
         SubscribeLocalEvent<FireControllableComponent, ComponentShutdown>(OnControllableShutdown);
         SubscribeLocalEvent<FireControllableComponent, EntParentChangedMessage>(OnControllableParentChanged);
         SubscribeLocalEvent<FireControllableComponent, AmmoCountUpdatedEvent>(OnControllableAmmoCountUpdated);
+        SubscribeLocalEvent<FireControllableComponent, GunCooldownStartEvent>(OnControllableCooldownStart);
 
 
         // Subscribe to grid split events to ensure we update when grids change
@@ -149,7 +153,17 @@ public sealed partial class FireControlSystem : EntitySystem
         }
     }
 
+    private void OnControllableCooldownStart(Entity<FireControllableComponent> ent, ref GunCooldownStartEvent args)
+    {
+        Log.Info($"[FCS] {ent} started cooldown of length {args.Cooldown.Length} ({args.Cooldown})");
+        UpdateControllableStatus(ent, args.Cooldown);
+    }
     private void OnControllableAmmoCountUpdated(Entity<FireControllableComponent> ent, ref AmmoCountUpdatedEvent args)
+    {
+        UpdateControllableStatus(ent);
+    }
+
+    private void UpdateControllableStatus(Entity<FireControllableComponent> ent, StartEndTime? cooldown = null)
     {
         if (ent.Comp.ControllingServer == null || !TryComp<FireControlServerComponent>(ent.Comp.ControllingServer, out var server))
             return;
@@ -157,7 +171,7 @@ public sealed partial class FireControlSystem : EntitySystem
         {
             if (TryComp<FireControlConsoleComponent>(console, out var consoleComp))
             {
-                UpdateAmmoCounts((console, consoleComp), ent);
+                UpdateWeaponStatus((console, consoleComp), ent, cooldown);
             }
         }
     }

@@ -81,6 +81,7 @@ public sealed partial class GunSystem
         component.Shots = shots;
         component.Capacity = maxShots;
         UpdateBatteryAppearance(uid, component);
+        UpdateAmmoCount(uid); // Mono
     }
 
     private void OnBatteryDamageExamine(EntityUid uid, BatteryAmmoProviderComponent component, ref DamageExamineEvent args)

@@ -441,6 +441,7 @@ public abstract partial class SharedGunSystem : EntitySystem
             gun.BurstShotsCount = 0;
             gun.ShotCounter = 0;
             gun.NextFire = TimeSpan.FromSeconds(Math.Max(lastFire.TotalSeconds + SafetyNextFire, gun.NextFire.TotalSeconds));
+            TryRaiseCooldownEvent(gunUid, gun.NextFire);
             return;
         }
 
@@ -460,7 +461,8 @@ public abstract partial class SharedGunSystem : EntitySystem
         // where the gun may be SemiAuto or Burst.
         gun.ShotCounter += shots;
         EntityManager.DirtyField(gunUid, gun, nameof(GunComponent.ShotCounter));
-
+        // Mono
+        var cooldownHandled = false;
         if (ev.Ammo.Count <= 0)
         {
             // triggers effects on the gun if it's empty
@@ -487,8 +489,9 @@ public abstract partial class SharedGunSystem : EntitySystem
                 // May cause prediction issues? Needs more tweaking
                 gun.NextFire = TimeSpan.FromSeconds(Math.Max(lastFire.TotalSeconds + SafetyNextFire, gun.NextFire.TotalSeconds));
                 Audio.PlayPredicted(gun.SoundEmpty, gunUid, user);
-                return;
             }
+            // Mono
+            TryRaiseCooldownEvent(gunUid, gun.NextFire);
 
             return;
         }
@@ -509,12 +512,19 @@ public abstract partial class SharedGunSystem : EntitySystem
                 gun.BurstActivated = false;
                 gun.BurstShotsCount = 0;
                 gun.ShotCounter = 0;
+                // Mono
+                TryRaiseCooldownEvent(gunUid, gun.NextFire);
+                cooldownHandled = true;
             }
         }
         // Shoot confirmed - sounds also played here in case it's invalid (e.g. cartridge already spent).
         Shoot(gunUid, gun, ev.Ammo, fromCoordinates, toCoordinates.Value, out var userImpulse, user, throwItems: attemptEv.ThrowItems);
         var shotEv = new GunShotEvent(user, ev.Ammo, toCoordinates.Value); // Mono - pass coordinates
         RaiseLocalEvent(gunUid, ref shotEv);
+        if (!cooldownHandled)
+        {
+            TryRaiseCooldownEvent(gunUid, gun.NextFire);
+        }
 
         CauseImpulse(toCoordinates.Value, (gunUid, gun), ev.Ammo.Count);
     }
@@ -708,6 +718,20 @@ public abstract partial class SharedGunSystem : EntitySystem
 
         var ev = new MuzzleFlashEvent(GetNetEntity(gun), sprite, worldAngle);
         CreateEffect(gun, ev, user);
+    }
+
+    protected void TryRaiseCooldownEvent(EntityUid gun, TimeSpan nextFire)
+    {
+        var curTime = Timing.CurTime;
+        var duration = nextFire - curTime;
+
+        if (duration < TimeSpan.FromSeconds(0.5f))
+        {
+            return;
+        }
+        var cooldownEvent = new GunCooldownStartEvent()
+            { Cooldown = StartEndTime.FromStartDuration(curTime, nextFire - curTime) };
+        RaiseLocalEvent(gun, cooldownEvent);
     }
 
     // Mono - rewritten
